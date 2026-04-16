@@ -121,6 +121,8 @@ jobs:
         # Extract version code from profiles.json
         version_code=$(jq -r '.version_code' ./openwrt_firmware/profiles.json)
         VERSION="${{matrix.target}}-$(date +'%Y.%m.%d')-${version_code}"
+        # Add VERSION to the beginning of build_info then indent everything
+        sed -i "s/^/    /; 1s/^/## $VERSION\n\n/" "${HOST_BIN_DIR}/build_info"
         # Check if the release already exists
         if gh release view "$VERSION" &>/dev/null; then
           gh release delete "$VERSION" --cleanup-tag -y
@@ -128,7 +130,8 @@ jobs:
         # Create the new release
         FILES_TO_UPLOAD=$(find ./openwrt_firmware -maxdepth 1 -type f -name "*sysupgrade.itb")
         gh release create "$VERSION" $FILES_TO_UPLOAD \
-          --title "$VERSION"
+          --title "$VERSION" \
+          --notes-file "${HOST_BIN_DIR}/build_info"
 
     - name: 14. Upload builder
       if: |
