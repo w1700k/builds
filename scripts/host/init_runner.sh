@@ -3,7 +3,7 @@
 
 setup_envs() {
   # Do not change
-  BUILDER_IMAGE_ID_BUILDENV="openwrtfanboy/openwrt_builder_arm:latest"
+  BUILDER_IMAGE_ID_BUILDENV="openwrtfanboy/openwrt_builder_arm:debian"
   BUILDER_CONTAINER_ID="builder"
   BUILDER_WORK_DIR="/home/builder"
   BUILDER_TMP_DIR="/tmp/builder"

@@ -13,18 +13,18 @@ if [ -z "$TAG" ]; then
     TAG="$QUERY_STRING"
 fi
 # Fetch the latest release from GitHub and extract the sysupgrade asset URL
-URL=$(curl -sS "https://api.github.com/repos/OpenWRT-fanboy/w1700k-ubi-build/releases/tags/$TAG" | jq -r '.assets[] | select(.browser_download_url | contains("sysupgrade")) | select((length == 0) | not) | .browser_download_url')
+URL=$(curl -sS "https://api.github.com/repos/OpenWRT-fanboy/w1700k-builds/releases/tags/$TAG" | jq -r '.assets[] | select(.browser_download_url | contains("sysupgrade")) | select((length == 0) | not) | .browser_download_url')
 if [ -z "$URL" ] || [ "$URL" = "null" ]; then
     echo '{"error": "No sysupgrade firmware found"}'
 else
-    SHA256_URL=$(curl -sS "https://api.github.com/repos/OpenWRT-fanboy/w1700k-ubi-build/releases/tags/$TAG" | jq -r '.assets[] | select(.browser_download_url | contains("sha256sums")) | select((length == 0) | not) | .browser_download_url')
+    SHA256_URL=$(curl -sS "https://api.github.com/repos/OpenWRT-fanboy/w1700k-builds/releases/tags/$TAG" | jq -r '.assets[] | select(.browser_download_url | contains("sha256sums")) | select((length == 0) | not) | .browser_download_url')
     if [ -n "$SHA256_URL" ] && [ "$SHA256_URL" != "null" ]; then
         FILENAME=$(basename "$URL")
         # Get the SHA256 hash for the specific file
         SHA256=$(curl -sSL "$SHA256_URL" | sed -n "s|\(.*\) .*${FILENAME}.*|\1|p")
     fi
     if [ -z "$SHA256" ]; then
-        SHA256=$(curl -sS "https://api.github.com/repos/OpenWRT-fanboy/w1700k-ubi-build/releases/tags/$TAG" | jq -r '.assets[] | select(.browser_download_url | contains("sysupgrade")) | select((length == 0) | not) | .digest' | sed 's|sha256:||')
+        SHA256=$(curl -sS "https://api.github.com/repos/OpenWRT-fanboy/w1700k-builds/releases/tags/$TAG" | jq -r '.assets[] | select(.browser_download_url | contains("sysupgrade")) | select((length == 0) | not) | .digest' | sed 's|sha256:||')
     fi
     if [ -z "$SHA256" ]; then
         echo "{\"error\": \"Could not get SHA256 hash for $FILENAME\"}"

@@ -1,4 +1,4 @@
-name: sync-minimal-branches-to-AUTO
+name: sync ubi2 branches to auto
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-slim
     strategy:
       matrix:
-        environment: [minimal-OC-ubi]
+        environment: [ubi2]
     permissions:
       contents: write
     environment: ${{ matrix.environment }}
@@ -21,15 +21,15 @@ jobs:
         uses: actions/checkout@main
         with:
           repository: ${{ env.REMOTE_REPOSITORY }}
-          ref: ${{ matrix.environment }}-AUTO
+          ref: ${{ matrix.environment }}-oc-auto
           fetch-depth: 0
           token: ${{ secrets.REPO_SECRET }}
       - name: Sync regular branch
         run: |
           git config user.name github-actions[bot]
           git config user.email github-actions[bot]@users.noreply.github.com
+          git switch -c ${{ matrix.environment }}-oc
+          git push --set-upstream origin ${{ matrix.environment }}-oc --force-with-lease
           git switch -c ${{ matrix.environment }}
-          git push --set-upstream origin ${{ matrix.environment }} --force-with-lease
-          git switch -c minimal-ubi
           git reset --hard HEAD~1
-          git push --set-upstream origin minimal-ubi --force-with-lease
+          git push --set-upstream origin ${{ matrix.environment }} --force-with-lease

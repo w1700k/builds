@@ -8,7 +8,7 @@ echo ""
 temp_json="/tmp/github_versions_$$.tmp"
 > "$temp_json"  # Clear the file
 
-curl -sS https://api.github.com/repos/OpenWRT-fanboy/w1700k-ubi-build/releases | \
+curl -sS https://api.github.com/repos/OpenWRT-fanboy/w1700k-builds/releases | \
 jq -r '.[] | "\(.tag_name) \(.assets[] | select(.browser_download_url | contains("sysupgrade")) | .browser_download_url)"' | \
 while read -r tag url; do
     if [ -z "$url" ] || [ -z "$tag" ]; then

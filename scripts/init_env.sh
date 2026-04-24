@@ -26,7 +26,7 @@ if [ ! -x "$(command -v curl)" ]; then
     sudo -E apt -qq install curl
 fi
 packages_file="${BUILDER_TMP_DIR}/packages.txt"
-packages_url="https://raw.githubusercontent.com/OpenWRT-fanboy/w1700k-ubi-build/refs/heads/main/scripts/host/packages.txt"
+packages_url="https://raw.githubusercontent.com/OpenWRT-fanboy/w1700k-builds/refs/heads/main/scripts/host/packages.txt"
 (
   set +eo pipefail
   

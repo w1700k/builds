@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-slim
     strategy:
       matrix:
-        environment: [main, snapshot, minimal-OC-ubi-AUTO]
+        environment: [main, snapshot, test, ubi2-oc-auto]
     permissions:
       contents: write
     environment: ${{ matrix.environment }}

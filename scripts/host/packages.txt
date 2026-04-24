@@ -10,7 +10,7 @@ gettext
 git
 libncurses5-dev
 libssl-dev
-python3-setuptools
+python3-distutils-extra
 rsync
 swig
 unzip

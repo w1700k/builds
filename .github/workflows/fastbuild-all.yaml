@@ -1,4 +1,4 @@
-name: fastbuild test, oc-ubi, ubi, snapshot
+name: fastbuild test, ubi2-oc, ubi2, snapshot
 
 on:
   workflow_dispatch:
@@ -28,7 +28,7 @@ jobs:
           - normal
         # ########### Add your target name below ###########
         # E.g. target: [x86_64, wdr4310v1]
-        target: [test, minimal-oc-ubi, minimal-ubi, SNAPSHOT]
+        target: [test, ubi2-oc, ubi2, SNAPSHOT]
         include:
         - mode: normal
           title: Build
