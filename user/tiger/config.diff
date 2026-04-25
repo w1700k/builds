@@ -1,0 +1,106 @@
+CONFIG_TARGET_airoha=y
+CONFIG_TARGET_airoha_an7581=y
+CONFIG_TARGET_airoha_an7581_DEVICE_gemtek_w1700k-ubi=y
+CONFIG_DEVEL=y
+CONFIG_CCACHE=y
+# CONFIG_KERNEL_DEBUG_INFO is not set
+CONFIG_KERNEL_DEVMEM=y
+# CONFIG_KERNEL_ELF_CORE is not set
+# CONFIG_KERNEL_KALLSYMS is not set
+CONFIG_OPENSSL_ENGINE=y
+CONFIG_OPENSSL_WITH_ASM=y
+CONFIG_OPENSSL_WITH_CHACHA_POLY1305=y
+CONFIG_OPENSSL_WITH_CMS=y
+CONFIG_OPENSSL_WITH_DEPRECATED=y
+CONFIG_OPENSSL_WITH_ERROR_MESSAGES=y
+CONFIG_OPENSSL_WITH_IDEA=y
+CONFIG_OPENSSL_WITH_MDC2=y
+CONFIG_OPENSSL_WITH_PSK=y
+CONFIG_OPENSSL_WITH_SEED=y
+CONFIG_OPENSSL_WITH_SRP=y
+CONFIG_OPENSSL_WITH_TLS13=y
+CONFIG_OPENSSL_WITH_WHIRLPOOL=y
+# CONFIG_PACKAGE_MAC80211_DEBUGFS is not set
+CONFIG_PACKAGE_attendedsysupgrade-common=y
+CONFIG_PACKAGE_bpftool-full=y
+CONFIG_PACKAGE_btop=y
+CONFIG_PACKAGE_cgi-io=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_ethtool-full=y
+CONFIG_PACKAGE_ip-full=y
+CONFIG_PACKAGE_iperf3=y
+CONFIG_PACKAGE_jq=y
+CONFIG_PACKAGE_kmod-ip6tables=y
+CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y
+CONFIG_PACKAGE_kmod-nf-ipt6=y
+CONFIG_PACKAGE_kmod-nft-bridge=y
+CONFIG_PACKAGE_kmod-sched-act-vlan=y
+CONFIG_PACKAGE_kmod-sched-bpf=y
+CONFIG_PACKAGE_kmod-sched-core=y
+CONFIG_PACKAGE_kmod-sched-flower=y
+CONFIG_PACKAGE_libatomic=y
+CONFIG_PACKAGE_libbfd=y
+CONFIG_PACKAGE_libbpf=y
+CONFIG_PACKAGE_libelf=y
+CONFIG_PACKAGE_libiperf3=y
+CONFIG_PACKAGE_libiwinfo=y
+CONFIG_PACKAGE_libiwinfo-data=y
+CONFIG_PACKAGE_libkmod=y
+CONFIG_PACKAGE_liblucihttp=y
+CONFIG_PACKAGE_liblucihttp-ucode=y
+CONFIG_PACKAGE_libncurses=y
+CONFIG_PACKAGE_libnetfilter-conntrack=y
+CONFIG_PACKAGE_libnfnetlink=y
+CONFIG_PACKAGE_libopcodes=y
+CONFIG_PACKAGE_libopenssl=y
+CONFIG_PACKAGE_libpci=y
+CONFIG_PACKAGE_libpcre2=y
+CONFIG_PACKAGE_libpthread=y
+CONFIG_PACKAGE_librt=y
+CONFIG_PACKAGE_libstdcpp=y
+CONFIG_PACKAGE_libuuid=y
+CONFIG_PACKAGE_libxtables=y
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-app-airoha-npu=y
+CONFIG_PACKAGE_luci-app-attendedsysupgrade=y
+CONFIG_PACKAGE_luci-app-firewall=y
+CONFIG_PACKAGE_luci-app-package-manager=y
+CONFIG_PACKAGE_luci-app-w1700k-fan=y
+CONFIG_PACKAGE_luci-base=y
+CONFIG_PACKAGE_luci-lib-uqr=y
+CONFIG_PACKAGE_luci-light=y
+CONFIG_PACKAGE_luci-mod-admin-full=y
+CONFIG_PACKAGE_luci-mod-network=y
+CONFIG_PACKAGE_luci-mod-status=y
+CONFIG_PACKAGE_luci-mod-system=y
+CONFIG_PACKAGE_luci-proto-ipv6=y
+CONFIG_PACKAGE_luci-proto-ppp=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+CONFIG_PACKAGE_luci-theme-glass=y
+CONFIG_PACKAGE_pciids=y
+CONFIG_PACKAGE_pciutils=y
+CONFIG_PACKAGE_rpcd=y
+CONFIG_PACKAGE_rpcd-mod-file=y
+CONFIG_PACKAGE_rpcd-mod-iwinfo=y
+CONFIG_PACKAGE_rpcd-mod-luci=y
+CONFIG_PACKAGE_rpcd-mod-rpcsys=y
+CONFIG_PACKAGE_rpcd-mod-rrdns=y
+CONFIG_PACKAGE_rpcd-mod-ucode=y
+CONFIG_PACKAGE_strace=y
+CONFIG_PACKAGE_tc-full=y
+CONFIG_PACKAGE_terminfo=y
+CONFIG_PACKAGE_ucode-mod-html=y
+CONFIG_PACKAGE_ucode-mod-log=y
+CONFIG_PACKAGE_ucode-mod-math=y
+CONFIG_PACKAGE_uhttpd=y
+CONFIG_PACKAGE_uhttpd-mod-ubus=y
+CONFIG_PACKAGE_wget-ssl=y
+CONFIG_PCRE2_JIT_ENABLED=y
+# CONFIG_PACKAGE_luci-i18n-glass-de is not set
+# CONFIG_PACKAGE_luci-i18n-glass-es is not set
+# CONFIG_PACKAGE_luci-i18n-glass-fr is not set
+# CONFIG_PACKAGE_luci-i18n-glass-ja is not set
+# CONFIG_PACKAGE_luci-i18n-glass-ko is not set
+# CONFIG_PACKAGE_luci-i18n-glass-ru is not set
+# CONFIG_PACKAGE_luci-i18n-glass-zh-cn is not set
+# CONFIG_PACKAGE_luci-i18n-glass-zh-tw is not set
