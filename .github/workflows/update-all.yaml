@@ -2,11 +2,11 @@ name: update-all
 
 on:
   schedule:
-    - cron: '15 */2 * * *'
+    - cron: '15 */22 * * *'
   workflow_dispatch:
 
 env:
-  REMOTE_REPOSITORY: OpenWRT-fanboy/OpenW1700k
+  REMOTE_REPOSITORY: joelinux60/openwrt-joelinux60
 
 jobs:
   update:
@@ -14,7 +14,8 @@ jobs:
     runs-on: ubuntu-slim
     strategy:
       matrix:
-        environment: [main, snapshot, test, tiger, ubi2-oc-auto]
+     #   environment: [main, snapshot, test, tiger, ubi2-oc-auto]
+        environment: [main]
     permissions:
       contents: write
     environment: ${{ matrix.environment }}
