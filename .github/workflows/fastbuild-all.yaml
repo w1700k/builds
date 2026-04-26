@@ -28,7 +28,8 @@ jobs:
           - normal
         # ########### Add your target name below ###########
         # E.g. target: [x86_64, wdr4310v1]
-        target: [test, ubi2-oc, ubi2, tiger, SNAPSHOT]
+      #  target: [test, ubi2-oc, ubi2, tiger, SNAPSHOT]
+        target: [ubi2-oc]
         include:
         - mode: normal
           title: Build
