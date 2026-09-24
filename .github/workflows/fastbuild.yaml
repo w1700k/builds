@@ -1,11 +1,11 @@
-name: fastbuild ubi2-oc, ubi2, snapshot
+name: fastbuild kernel73-oc, kernel73, ubi2-oc, ubi2, snapshot
 on: workflow_dispatch
 permissions: write-all
 jobs:
   build:
     name: Build ${{ matrix.target }}
-    runs-on: ubuntu-24.04-arm
-    strategy: {fail-fast: false, matrix: {target: [ubi2-oc, ubi2, SNAPSHOT]}}
+    runs-on: ubuntu-26.04-arm
+    strategy: {fail-fast: false, matrix: {target: [kernel73-oc, kernel73, ubi2-oc, ubi2, SNAPSHOT]}}
     env:
       DK_OPENWRT: /bld/openwrt
       DK_BIN: /bld/openwrt_bin
@@ -67,7 +67,8 @@ jobs:
           cp files/build_info $DK_BIN
           ln -sf $DK_BIN bin && ln -sf /dlcache dl && ln -sf /stcache staging_dir
           bp=$DK_PROFILE fc=feeds.conf
-          cp $bp/files/$fc $fc 2>&- && cp $fc /tmp/feeds.bak
+          if [ -f $bp/files/$fc ]; then cp $bp/files/$fc $fc; elif [ -f feeds.conf.default ]; then cp feeds.conf.default $fc; else echo "::error::no $fc in profile files/ nor repo default" >&2; exit 1; fi
+          cp $fc /tmp/feeds.bak
           rm -rf feeds/* &>/dev/null; ./scripts/feeds update -a &>/dev/null; ./scripts/feeds install -a
           mv /tmp/feeds.bak $fc &>/dev/null ||:
           cp $bp/config.diff .config
@@ -81,13 +82,22 @@ jobs:
     - name: Compile OpenWrt
       run: |
         for mode in c s; do
-          docker_exec -e MODE=$mode DK bash -c '
+          if docker_exec -e MODE=$mode DK bash -e -c '
             bash $DK_PROFILE/pre_compile.sh 2>&- ||:
             cd $DK_OPENWRT
-            export FORCE_UNSAFE_CONFIGURE=1 CCACHE_SLOPPINESS=file_stat_matches,include_file_mtime,time_macros CCACHE_NOHASHDIR=true CCACHE_COMPILERCHECK=content
-            make -j$(($(nproc) + 1)) V=$MODE
+            export FORCE_UNSAFE_CONFIGURE=1
+            export CCACHE_SLOPPINESS=file_stat_matches,include_file_mtime,time_macros
+            export CCACHE_NOHASHDIR=true
+            export CCACHE_COMPILERCHECK=content
+            if [ "$MODE" = s ]; then
+              make -j1 V=s
+            else
+              make -j$(($(nproc) + 1)) V=c
+            fi
             staging_dir/host/bin/ccache -d /ghcache -sz ||:
-          ' && break
+          '; then
+            break
+          fi
         done
 
     - name: Create release
