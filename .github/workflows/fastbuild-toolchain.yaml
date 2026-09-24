@@ -67,13 +67,22 @@ jobs:
     - name: Compile OpenWrt
       run: |
         for mode in c s; do
-          docker_exec -e MODE=$mode DK bash -c '
+          if docker_exec -e MODE=$mode DK bash -e -c '
             bash $DK_PROFILE/pre_compile.sh 2>&- ||:
             cd $DK_OPENWRT
-            export FORCE_UNSAFE_CONFIGURE=1 CCACHE_SLOPPINESS=file_stat_matches,include_file_mtime,time_macros CCACHE_NOHASHDIR=true CCACHE_COMPILERCHECK=content
-            make -j$(($(nproc) + 1)) V=$MODE toolchain/install
+            export FORCE_UNSAFE_CONFIGURE=1
+            export CCACHE_SLOPPINESS=file_stat_matches,include_file_mtime,time_macros
+            export CCACHE_NOHASHDIR=true
+            export CCACHE_COMPILERCHECK=content
+            if [ "$MODE" = s ]; then
+              make -j1 V=s toolchain/install
+            else
+              make -j$(($(nproc) + 1)) V=c toolchain/install
+            fi
             staging_dir/host/bin/ccache -d /ghcache -sz ||:
-          ' && break
+          '; then
+            break
+          fi
         done
         sudo chown -R "$(id -u):$(id -g)" stcache
 
