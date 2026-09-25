@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        environment: [main, snapshot, ubi2-oc-auto]
+        environment: [main, snapshot, ubi2-oc, kernel73-oc]
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout remote repository
@@ -77,4 +77,11 @@ jobs:
           git remote add openwrt https://github.com/openwrt/openwrt.git
           git remote update
           git rebase openwrt/main
-          git push --force-with-lease
+          git push --set-upstream origin ${{ matrix.environment }} --force-with-lease
+      - name: Sync non-oc branches
+        if: endsWith(matrix.environment, '-oc')
+        run: |
+          BASE_BRANCH=$(echo "${{ matrix.environment }}" | sed 's/-oc$//')
+          git switch -c $BASE_BRANCH
+          git reset --hard HEAD~1
+          git push --set-upstream origin $BASE_BRANCH --force-with-lease
