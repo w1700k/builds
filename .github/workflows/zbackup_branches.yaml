@@ -1,0 +1,36 @@
+name: zbackup ubi2-oc and kernel73-oc
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '40 4 * * 0'
+
+env:
+  REMOTE_REPOSITORY: OpenWRT-fanboy/OpenW1700k
+
+jobs:
+  update:
+    name: Backup ${{ matrix.environment }} branch
+    runs-on: ubuntu-slim
+    strategy:
+      matrix:
+        environment: [ubi2-oc, kernel73-oc]
+    permissions:
+      contents: write
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Checkout AUTO repository
+        uses: actions/checkout@main
+        with:
+          repository: ${{ env.REMOTE_REPOSITORY }}
+          ref: ${{ matrix.environment }}
+          fetch-depth: 0
+          token: ${{ secrets.REPO_SECRET }}
+      - name: Backup branch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email github-actions[bot]@users.noreply.github.com
+          backup_date=$(date -u +%y%m%d)
+          backup_branch="z-${{ matrix.environment }}-${backup_date}"
+          git switch -c "$backup_branch"
+          git push --set-upstream origin "$backup_branch" --force-with-lease
