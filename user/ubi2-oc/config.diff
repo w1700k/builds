@@ -44,6 +44,7 @@ CONFIG_PACKAGE_attendedsysupgrade-common=y
 CONFIG_PACKAGE_ca-certificates=y
 CONFIG_PACKAGE_cgi-io=y
 CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_ethtool=y
 CONFIG_PACKAGE_fastfetch=y
 CONFIG_PACKAGE_iperf3=y
 CONFIG_PACKAGE_irqbalance=y
