@@ -51,6 +51,9 @@ jobs:
     - name: Prepare OpenWrt source
       run: |
         docker_exec DK bash -e -c '
+          # git archive emits 664/775; root tar restores verbatim -> force umask-honoring extraction
+          umask 022
+          export TAR_OPTIONS="--no-same-permissions"
           . $DK_USER/default/settings.ini &>/dev/null ||:
           . $DK_PROFILE/settings.ini
           [[ $REPO_URL && $REPO_BRANCH ]] || { echo "::error::Missing REPO_URL or REPO_BRANCH"; exit 1; }
@@ -80,6 +83,9 @@ jobs:
       run: |
         for mode in c s; do
           if docker_exec -e MODE=$mode DK bash -e -c '
+            # git archive emits 664/775; root tar restores verbatim -> force umask-honoring extraction
+            umask 022
+            export TAR_OPTIONS="--no-same-permissions"
             bash $DK_PROFILE/pre_compile.sh 2>&- ||:
             cd $DK_OPENWRT
             export FORCE_UNSAFE_CONFIGURE=1
