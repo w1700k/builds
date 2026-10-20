@@ -48,7 +48,7 @@ jobs:
       - name: Download and extract
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          curl -L https://downloads.openwrt.org/snapshots/targets/airoha/an7581/openwrt-airoha-an7581-airoha_an7581-evb-squashfs-sysupgrade.bin --output sysupgrade.bin
+          curl -L https://downloads.openwrt.org/snapshots/targets/airoha/an7581/openwrt-airoha-an7581-airoha_an7581-evb-multievb-squashfs-sysupgrade.bin --output sysupgrade.bin
           binwalk -e sysupgrade.bin
 
       - name: Prepare artifact for GitHub Pages
