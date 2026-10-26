@@ -43,7 +43,7 @@ jobs:
         echo 'CONFIG_CCACHE_DIR="/ghcache"' >> user/current/config.diff
         sudo tee /etc/docker/daemon.json <<< '{"max-concurrent-downloads":50,"max-concurrent-uploads":50,"experimental":true}'
         sudo systemctl reload docker
-        IMAGE=$IMG_INC; docker pull $IMAGE 2>&- || IMAGE=ghcr.io/w1700k/fastbuild_base:base-builder
+        IMAGE=$IMG_INC; docker pull $IMAGE 2>&- || IMAGE=ghcr.io/w1700k/fastbuild_base:base-builder-${{ matrix.target }}
         docker run -dt --name DK -v $PWD/user:$DK_USER -v $PWD/openwrt_bin:$DK_BIN -v $PWD/ghcache:/ghcache -v $PWD/stcache:/stcache -v $PWD/dlcache:/dlcache $IMAGE
         install -m 755 /dev/stdin /usr/local/bin/docker_exec <<'DKR'
         #!/bin/bash
@@ -69,7 +69,7 @@ jobs:
           bp=$DK_PROFILE fc=feeds.conf
           if [ -f $bp/files/$fc ]; then cp $bp/files/$fc $fc; elif [ -f feeds.conf.default ]; then cp feeds.conf.default $fc; else echo "::error::no $fc in profile files/ nor repo default" >&2; exit 1; fi
           cp $fc /tmp/feeds.bak
-          rm -rf feeds/* &>/dev/null; ./scripts/feeds update -a &>/dev/null; ./scripts/feeds install -a
+          rm -rf feeds package/feeds &>/dev/null; ./scripts/feeds update -a &>/dev/null; ./scripts/feeds install -a
           mv /tmp/feeds.bak $fc &>/dev/null ||:
           cp $bp/config.diff .config
           cat $bp/patches/*.patch 2>&- | patch -d . -p0 --forward ||:

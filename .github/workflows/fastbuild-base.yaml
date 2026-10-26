@@ -15,7 +15,7 @@ jobs:
       DK_USER: /bld/user
       DK_PROFILE: /bld/user/current
       GH_TOKEN: ${{ github.token }}
-      IMG_BASE: ghcr.io/w1700k/fastbuild_base:base-builder
+      IMG_BASE: ghcr.io/w1700k/fastbuild_base:base-builder-${{ matrix.target }}
       IMG_INC: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ matrix.target }}-inc
     steps:
     - uses: actions/checkout@v7
@@ -41,7 +41,7 @@ jobs:
         [ -f "user/${{ matrix.target }}/config.diff" ] || { echo "::error::config.diff not found for ${{ matrix.target }}"; exit 1; }
         rsync -aI --mkpath user/default/ user/${{ matrix.target }}/ user/current/ 2>&-
         echo 'CONFIG_CCACHE_DIR="/ghcache"' >> user/current/config.diff
-        docker run -dt --name DK -v $PWD/user:$DK_USER -v $PWD/openwrt_bin:$DK_BIN -v $PWD/ghcache:/ghcache -v $PWD/stcache:/stcache -v $PWD/dlcache:/dlcache ghcr.io/w1700k/fastbuild_base:base-toolchain
+        docker run -dt --name DK -v $PWD/user:$DK_USER -v $PWD/openwrt_bin:$DK_BIN -v $PWD/ghcache:/ghcache -v $PWD/stcache:/stcache -v $PWD/dlcache:/dlcache ghcr.io/w1700k/fastbuild_base:base-toolchain-${{ matrix.target }}
         install -m 755 /dev/stdin /usr/local/bin/docker_exec <<'DKR'
         #!/bin/bash
         for n in DK_BIN DK_USER DK_PROFILE DK_OPENWRT; do e+=(-e "$n=${!n}"); done
@@ -66,7 +66,7 @@ jobs:
           bp=$DK_PROFILE fc=feeds.conf
           if [ -f $bp/files/$fc ]; then cp $bp/files/$fc $fc; elif [ -f feeds.conf.default ]; then cp feeds.conf.default $fc; else echo "::error::no $fc in profile files/ nor repo default" >&2; exit 1; fi
           cp $fc /tmp/feeds.bak
-          rm -rf feeds/* &>/dev/null; ./scripts/feeds update -a &>/dev/null; ./scripts/feeds install -a
+          rm -rf feeds package/feeds &>/dev/null; ./scripts/feeds update -a &>/dev/null; ./scripts/feeds install -a
           mv /tmp/feeds.bak $fc &>/dev/null ||:
           cp $bp/config.diff .config
           cat $bp/patches/*.patch 2>&- | patch -d . -p0 --forward ||:
