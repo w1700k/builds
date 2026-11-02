@@ -1,39 +1,371 @@
 #!/bin/sh
+#
+# Resolve and download one GitHub release asset in resumable chunks.  Each
+# invocation returns well before uhttpd's 60 s CGI timeout, so the caller
+# keeps asking until the image is complete and its SHA256 has been verified.
 
-# CGI header
-echo "Content-Type: application/json"
-echo ""
+printf 'Content-Type: application/json\n'
+printf 'Cache-Control: no-store\n'
+printf '\n'
 
-# Parse query string to get the tag parameter
+API_URL='https://api.github.com/repos/w1700k/builds/releases/tags'
+CACHE_FILE='/tmp/github-releases.json'
+PART_FILE='/tmp/firmware.bin.part'
+PART_SOURCE="$PART_FILE.source"
+DEST_FILE='/tmp/firmware.bin'
+DEST_STAMP="$DEST_FILE.sha256"
+
 QUERY_STRING="${QUERY_STRING:-$1}"
-TAG=$(echo "$QUERY_STRING" | sed -n 's/.*tag=\([^&]*\).*/\1/p' | sed 's/%2B/+/g; s/%3D/=/g; s/%2F/\//g')
 
-# If TAG is empty, try to get it directly from the query string
-if [ -z "$TAG" ]; then
-    TAG="$QUERY_STRING"
-fi
-# Fetch the latest release from GitHub and extract the sysupgrade asset URL
-URL=$(curl -sS "https://api.github.com/repos/w1700k/builds/releases/tags/$TAG" | jq -r '.assets[] | select(.browser_download_url | contains("sysupgrade")) | select((length == 0) | not) | .browser_download_url')
-if [ -z "$URL" ] || [ "$URL" = "null" ]; then
-    echo '{"error": "No sysupgrade firmware found"}'
-else
-    SHA256_URL=$(curl -sS "https://api.github.com/repos/w1700k/builds/releases/tags/$TAG" | jq -r '.assets[] | select(.browser_download_url | contains("sha256sums")) | select((length == 0) | not) | .browser_download_url')
-    if [ -n "$SHA256_URL" ] && [ "$SHA256_URL" != "null" ]; then
-        FILENAME=$(basename "$URL")
-        # Get the SHA256 hash for the specific file
-        SHA256=$(curl -sSL "$SHA256_URL" | sed -n "s|\(.*\) .*${FILENAME}.*|\1|p")
-    fi
-    if [ -z "$SHA256" ]; then
-        SHA256=$(curl -sS "https://api.github.com/repos/w1700k/builds/releases/tags/$TAG" | jq -r '.assets[] | select(.browser_download_url | contains("sysupgrade")) | select((length == 0) | not) | .digest' | sed 's|sha256:||')
-    fi
-    if [ -z "$SHA256" ]; then
-        echo "{\"error\": \"Could not get SHA256 hash for $FILENAME\"}"
+json_error() {
+    jq -n --arg error "$1" '{error: $error}'
+}
+
+urldecode() {
+    printf '%b' "$(printf '%s' "$1" | sed 's/%/\\x/g')"
+}
+
+query_param() {
+    printf '%s' "$QUERY_STRING" | tr '&' '\n' | sed -n "s/^$1=//p" | head -n 1
+}
+
+sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{ print $1 }'
     else
-        # Download the firmware file to /tmp/firmware.bin
-        if curl -sS -L -o /tmp/firmware.bin "$URL"; then
-            echo "{\"success\": true, \"path\": \"/tmp/firmware.bin\", \"sha256\": \"$SHA256\"}"
+        openssl dgst -sha256 "$1" | awk '{ print $NF }'
+    fi
+}
+
+part_size() {
+    if [ -f "$PART_FILE" ]; then
+        wc -c < "$PART_FILE"
+    else
+        echo 0
+    fi
+}
+
+if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    printf '{"error":"curl and jq are required"}\n'
+    exit 0
+fi
+
+tag_enc=$(query_param tag)
+asset_enc=$(query_param asset)
+
+if [ -z "$tag_enc" ]; then
+    json_error 'Missing tag parameter'
+    exit 0
+fi
+case "$tag_enc" in
+    *[!A-Za-z0-9._~%+-]*)
+        json_error 'Invalid tag parameter'
+        exit 0
+        ;;
+esac
+tag=$(urldecode "$tag_enc")
+case "$tag" in
+    ''|*..*)
+        json_error 'Invalid tag parameter'
+        exit 0
+        ;;
+esac
+asset=$(urldecode "$asset_enc")
+
+tmpdir=$(mktemp -d /tmp/github-fetch.XXXXXX) || {
+    json_error 'Cannot create temporary directory'
+    exit 0
+}
+trap 'rm -rf "$tmpdir"' 0
+exec 2>"$tmpdir/stderr"
+
+select_asset() {
+    if [ -n "$asset" ]; then
+        printf '%s' "$1" | jq -c --arg name "$asset" \
+            'first(.assets[]? | select(.name == $name)) // empty'
+    else
+        printf '%s' "$1" | jq -c '
+            [ .assets[]?
+              | select(.name | type == "string")
+              | select(.name | ascii_downcase | contains("sysupgrade"))
+            ]
+            | (map(select(.name | ascii_downcase | contains("squashfs-sysupgrade"))) + .)
+            | first // empty'
+    fi
+}
+
+cache_release() {
+    if [ -s "$CACHE_FILE" ] && jq -e 'type == "array"' "$CACHE_FILE" >/dev/null 2>&1; then
+        jq -c --argjson release "$1" \
+            'map(select(.tag_name != $release.tag_name)) + [$release]' \
+            "$CACHE_FILE" > "$CACHE_FILE.$$" &&
+            chmod 600 "$CACHE_FILE.$$" &&
+            mv "$CACHE_FILE.$$" "$CACHE_FILE"
+    else
+        printf '[%s]\n' "$1" > "$CACHE_FILE.$$" &&
+            chmod 600 "$CACHE_FILE.$$" &&
+            mv "$CACHE_FILE.$$" "$CACHE_FILE"
+    fi
+}
+
+# Parse one GitHub API response.  Sets api_error and returns 1 on failure.
+api_get() {
+    http_code=$(curl -sS --location \
+        --proto '=https' --proto-redir '=https' \
+        --connect-timeout 8 --max-time 8 \
+        --retry 2 --retry-delay 1 --retry-connrefused \
+        --user-agent 'luci-app-attendedsysupgrade' \
+        --header 'Accept: application/vnd.github+json' \
+        --header 'X-GitHub-Api-Version: 2022-11-28' \
+        --dump-header "$tmpdir/headers" \
+        --output "$2" \
+        --write-out '%{http_code}' \
+        "$1" 2>"$tmpdir/curl.err")
+    curl_rc=$?
+
+    if [ "$curl_rc" -ne 0 ]; then
+        api_error="Could not reach GitHub: $(sed -n '$p' "$tmpdir/curl.err")"
+        return 1
+    fi
+
+    if [ "$http_code" != '200' ]; then
+        message=$(jq -r '.message // empty' "$2" 2>/dev/null)
+        remaining=$(awk 'tolower($1) == "x-ratelimit-remaining:" { print $2 }' "$tmpdir/headers" | tr -d '\r' | tail -n 1)
+        if [ "$http_code" = '429' ] || [ "$remaining" = '0' ]; then
+            reset=$(awk 'tolower($1) == "x-ratelimit-reset:" { print $2 }' "$tmpdir/headers" | tr -d '\r' | tail -n 1)
+            if [ -n "$reset" ] && [ "$reset" -gt 0 ] 2>/dev/null; then
+                wait=$((reset - $(date +%s)))
+                [ "$wait" -lt 0 ] && wait=0
+                api_error="GitHub API rate limit exceeded, try again in $(( (wait + 59) / 60 )) minute(s)"
+            else
+                api_error="${message:-GitHub API rate limit exceeded}"
+            fi
         else
-            echo "{\"error\": \"Failed to download firmware from $URL\"}"
+            api_error="${message:-GitHub API returned HTTP $http_code}"
         fi
+        return 1
+    fi
+
+    if ! jq -e 'type == "object"' "$2" >/dev/null 2>&1; then
+        api_error='GitHub returned an unexpected response'
+        return 1
+    fi
+
+    return 0
+}
+
+release=''
+asset_json=''
+resolved=0
+
+# The releases list written by github_check already contains everything
+# needed for a listed release, including the asset digest.
+if [ -s "$CACHE_FILE" ]; then
+    release=$(jq -c --arg tag "$tag" \
+        'first(.[] | select(.tag_name == $tag)) // empty' "$CACHE_FILE" 2>/dev/null)
+    if [ -n "$release" ]; then
+        asset_json=$(select_asset "$release")
     fi
 fi
+
+if [ -z "$asset_json" ]; then
+    if ! api_get "$API_URL/$tag_enc" "$tmpdir/release.json"; then
+        json_error "$api_error"
+        exit 0
+    fi
+    release=$(jq -c \
+        'if (.assets | type) == "array" then . else empty end' \
+        "$tmpdir/release.json" 2>/dev/null)
+    if [ -z "$release" ]; then
+        json_error "Release $tag not found"
+        exit 0
+    fi
+    asset_json=$(select_asset "$release")
+    resolved=1
+
+    # Keep the release for the following calls, which only read the cache.
+    cache_release "$release"
+fi
+
+if [ -z "$asset_json" ]; then
+    if [ -n "$asset" ]; then
+        json_error "Firmware asset $asset not found in release $tag"
+    else
+        json_error "No sysupgrade image found in release $tag"
+    fi
+    exit 0
+fi
+
+url=$(printf '%s' "$asset_json" | jq -r '.browser_download_url // empty')
+name=$(printf '%s' "$asset_json" | jq -r '.name // empty')
+total=$(printf '%s' "$asset_json" | jq -r '.size // 0')
+digest=$(printf '%s' "$asset_json" | jq -r '.digest // empty')
+expected=${digest#sha256:}
+
+case "$url" in
+    https://*) ;;
+    *)
+        json_error 'GitHub returned an invalid asset URL'
+        exit 0
+        ;;
+esac
+case "$total" in
+    ''|*[!0-9]*) total=0 ;;
+esac
+
+# Older assets may not carry a digest; fall back to the release's sha256sums.
+if [ -z "$expected" ]; then
+    sums_url=$(printf '%s' "$release" | jq -r '
+        first(.assets[]?
+          | select(.name | type == "string")
+          | select(.name | ascii_downcase | contains("sha256sums"))
+          | .browser_download_url) // empty')
+    if [ -n "$sums_url" ]; then
+        if curl -sS --location --fail \
+            --proto '=https' --proto-redir '=https' \
+            --connect-timeout 8 --max-time 10 --retry 1 \
+            --output "$tmpdir/sums" \
+            "$sums_url" 2>"$tmpdir/curl.err"
+        then
+            expected=$(awk -v file="$name" '
+                {
+                    entry = $2
+                    sub(/^\*/, "", entry)
+                    sub(/^.*\//, "", entry)
+                }
+                entry == file { print tolower($1); exit }' "$tmpdir/sums")
+            if [ -n "$expected" ]; then
+                release=$(printf '%s' "$release" | jq -c \
+                    --arg name "$name" --arg digest "sha256:$expected" '
+                    .assets |= map(
+                        if .name == $name then . + {digest: $digest} else . end)')
+                cache_release "$release"
+            fi
+        fi
+        resolved=1
+    fi
+fi
+
+case "$expected" in
+    ''|*[!0-9a-fA-F]*)
+        json_error "Could not determine the SHA256 checksum for $name"
+        exit 0
+        ;;
+esac
+if [ ${#expected} -ne 64 ]; then
+    json_error "Could not determine the SHA256 checksum for $name"
+    exit 0
+fi
+expected=$(printf '%s' "$expected" | tr 'A-F' 'a-f')
+
+finish() {
+    if mv "$PART_FILE" "$DEST_FILE" &&
+        chmod 600 "$DEST_FILE" &&
+        printf '%s\n' "$expected" > "$DEST_STAMP"
+    then
+        rm -f "$PART_SOURCE"
+        jq -n --arg path "$DEST_FILE" --arg sha256 "$expected" \
+            '{success: true, path: $path, sha256: $sha256}'
+        exit 0
+    fi
+    json_error 'Could not store the downloaded image'
+    exit 0
+}
+
+# Never resume bytes that belong to a different release or asset.
+source_id="$tag|$name|$expected"
+if [ -f "$PART_FILE" ] && [ ! -f "$PART_SOURCE" ]; then
+    rm -f "$PART_FILE"
+fi
+if [ -f "$PART_SOURCE" ] && [ "$(cat "$PART_SOURCE")" != "$source_id" ]; then
+    rm -f "$PART_FILE" "$PART_SOURCE"
+fi
+printf '%s\n' "$source_id" > "$PART_SOURCE"
+
+# A previous run may already have produced a verified image.
+if [ -f "$DEST_STAMP" ] && [ "$(cat "$DEST_STAMP")" = "$expected" ] && [ -f "$DEST_FILE" ]; then
+    if [ "$(sha256_file "$DEST_FILE")" = "$expected" ]; then
+        jq -n --arg path "$DEST_FILE" --arg sha256 "$expected" \
+            '{success: true, path: $path, sha256: $sha256}'
+        exit 0
+    fi
+    rm -f "$DEST_FILE" "$DEST_STAMP"
+fi
+
+# Resolving metadata consumed this request's budget; start downloading on
+# the next call, which will hit the cache written above.
+if [ "$resolved" -eq 1 ]; then
+    jq -n --argjson received "$(part_size)" --argjson total "$total" \
+        '{pending: true, received: $received, total: $total}'
+    exit 0
+fi
+
+received=$(part_size)
+
+# Without a known size a completed partial file cannot be told apart from a
+# truncated one, so start over instead of resuming into a 416 loop.
+if [ "$total" -eq 0 ] && [ "$received" -gt 0 ]; then
+    rm -f "$PART_FILE" "$PART_SOURCE"
+    printf '%s\n' "$source_id" > "$PART_SOURCE"
+    received=0
+fi
+
+if [ "$total" -gt 0 ] && [ "$received" -ge "$total" ]; then
+    if [ "$received" -eq "$total" ] &&
+        [ "$(sha256_file "$PART_FILE")" = "$expected" ]
+    then
+        finish
+    fi
+    rm -f "$PART_FILE" "$PART_SOURCE"
+    if [ "$received" -gt "$total" ]; then
+        jq -n --argjson total "$total" \
+            '{pending: true, received: 0, total: $total}'
+    else
+        json_error 'Downloaded image failed the SHA256 check, please retry'
+    fi
+    exit 0
+fi
+
+curl_rc=0
+curl -sS --location \
+    --proto '=https' --proto-redir '=https' \
+    --fail \
+    --connect-timeout 10 --max-time 25 \
+    --speed-limit 1024 --speed-time 10 \
+    --continue-at - \
+    --output "$PART_FILE" \
+    "$url" 2>"$tmpdir/curl.err" || curl_rc=$?
+
+new_received=$(part_size)
+
+if [ "$new_received" -gt 0 ] && { [ "$total" -eq 0 ] || [ "$new_received" -eq "$total" ]; }; then
+    if [ "$new_received" -eq "$total" ] || [ "$curl_rc" -eq 0 ]; then
+        if [ "$(sha256_file "$PART_FILE")" = "$expected" ]; then
+            finish
+        fi
+        rm -f "$PART_FILE" "$PART_SOURCE"
+        json_error 'Downloaded image failed the SHA256 check, please retry'
+        exit 0
+    fi
+fi
+
+if [ "$total" -gt 0 ] && [ "$new_received" -gt "$total" ]; then
+    rm -f "$PART_FILE" "$PART_SOURCE"
+    jq -n --argjson total "$total" \
+        '{pending: true, received: 0, total: $total}'
+    exit 0
+fi
+
+if [ "$curl_rc" -eq 0 ] && [ "$new_received" -eq 0 ]; then
+    json_error 'Downloaded image is empty'
+    exit 0
+fi
+
+message=''
+if [ "$curl_rc" -ne 0 ]; then
+    message=$(sed -n '$p' "$tmpdir/curl.err")
+fi
+
+jq -n --argjson received "$new_received" --argjson total "$total" \
+    --arg message "$message" \
+    '{pending: true, received: $received, total: $total, message: $message}'
