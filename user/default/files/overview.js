@@ -90,6 +90,185 @@ function get_revision_count(revision) {
 	return parseInt(revision.substring(1).split('-')[0]);
 }
 
+/**
+ * Render the subset of Markdown used by GitHub release notes.
+ *
+ * The input is escaped before any markup is generated, and only the elements
+ * produced below can appear in the result. Links are restricted to http(s),
+ * so release notes cannot inject script or event handler attributes.
+ *
+ * @param {string} text
+ * Markdown source.
+ * @returns {string}
+ * HTML fragment.
+ */
+function renderGithubMarkdown(text) {
+	const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({
+		'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+	})[c]);
+
+	const inline = (s) => {
+		const saved = [];
+		const keep = (html) => '\x00' + (saved.push(html) - 1) + '\x00';
+
+		s = escapeHtml(s);
+
+		s = s.replace(/`([^`]+)`/g, (m, code) => keep('<code>' + code + '</code>'));
+		s = s.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,
+			(m, alt, url) => keep('<a href="' + url + '" target="_blank" rel="noopener noreferrer">' +
+				(alt || url) + '</a>'));
+		s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+			(m, label, url) => keep('<a href="' + url + '" target="_blank" rel="noopener noreferrer">' +
+				label + '</a>'));
+		s = s.replace(/&lt;(https?:\/\/[^\s&]+)&gt;/g,
+			(m, url) => keep('<a href="' + url + '" target="_blank" rel="noopener noreferrer">' +
+				url + '</a>'));
+
+		s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+		s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+		s = s.replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g, '$1<em>$2</em>');
+		s = s.replace(/(^|[^A-Za-z0-9_])_([^_\s][^_]*?)_(?![A-Za-z0-9_])/g, '$1<em>$2</em>');
+		s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+		return s.replace(/\x00(\d+)\x00/g, (m, index) => saved[+index]);
+	};
+
+	const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
+	const out = [];
+	let paragraph = [];
+	let list = null;
+	let fence = null;
+	let fenceLines = [];
+	let indentLines = [];
+
+	const flushIndentCode = () => {
+		if (indentLines.length) {
+			out.push('<pre style="white-space: pre-wrap; overflow-wrap: anywhere">' +
+				escapeHtml(indentLines.join('\n')) + '</pre>');
+			indentLines = [];
+		}
+	};
+
+	const flushParagraph = () => {
+		if (paragraph.length) {
+			out.push('<p>' + inline(paragraph.join(' ')) + '</p>');
+			paragraph = [];
+		}
+	};
+
+	const closeList = () => {
+		if (list) {
+			out.push('</' + list + '>');
+			list = null;
+		}
+	};
+
+	for (const line of lines) {
+		const trimmed = line.trim();
+
+		if (fence) {
+			if (trimmed.startsWith(fence)) {
+				out.push('<pre style="white-space: pre-wrap; overflow-wrap: anywhere">' +
+					escapeHtml(fenceLines.join('\n')) + '</pre>');
+				fence = null;
+				fenceLines = [];
+			}
+			else {
+				fenceLines.push(line);
+			}
+			continue;
+		}
+
+		// A four space (or tab) indent is a Markdown code block, unless the
+		// line is a list item, in which case the flat list handling below wins.
+		const indented = /^(?: {4}|\t)(.*)$/.exec(line);
+		if (indented && !/^([-*+]|\d+[.)])\s+/.test(trimmed)) {
+			flushParagraph();
+			closeList();
+			indentLines.push(indented[1]);
+			continue;
+		}
+
+		flushIndentCode();
+
+		const fenceMatch = trimmed.match(/^(```+|~~~+)/);
+		if (fenceMatch) {
+			flushParagraph();
+			closeList();
+			fence = fenceMatch[1].slice(0, 3);
+			continue;
+		}
+
+		if (trimmed === '') {
+			flushParagraph();
+			closeList();
+			continue;
+		}
+
+		const heading = trimmed.match(/^(#{1,6})\s+(.*)$/);
+		if (heading) {
+			flushParagraph();
+			closeList();
+			const level = heading[1].length;
+			out.push('<h' + level + '>' + inline(heading[2]) + '</h' + level + '>');
+			continue;
+		}
+
+		if (/^([-*_])\s*\1\s*\1[\s\-*_]*$/.test(trimmed)) {
+			flushParagraph();
+			closeList();
+			out.push('<hr>');
+			continue;
+		}
+
+		const quote = trimmed.match(/^>\s?(.*)$/);
+		if (quote) {
+			flushParagraph();
+			closeList();
+			out.push('<blockquote style="margin: 0; padding-left: 1em; border-left: 3px solid rgba(128,128,128,.4)">' +
+				inline(quote[1]) + '</blockquote>');
+			continue;
+		}
+
+		const unordered = trimmed.match(/^[-*+]\s+(.*)$/);
+		if (unordered) {
+			flushParagraph();
+			if (list !== 'ul') {
+				closeList();
+				out.push('<ul>');
+				list = 'ul';
+			}
+			out.push('<li>' + inline(unordered[1]) + '</li>');
+			continue;
+		}
+
+		const ordered = trimmed.match(/^\d+[.)]\s+(.*)$/);
+		if (ordered) {
+			flushParagraph();
+			if (list !== 'ol') {
+				closeList();
+				out.push('<ol>');
+				list = 'ol';
+			}
+			out.push('<li>' + inline(ordered[1]) + '</li>');
+			continue;
+		}
+
+		closeList();
+		paragraph.push(trimmed);
+	}
+
+	if (fence)
+		out.push('<pre style="white-space: pre-wrap; overflow-wrap: anywhere">' +
+			escapeHtml(fenceLines.join('\n')) + '</pre>');
+
+	flushIndentCode();
+	flushParagraph();
+	closeList();
+
+	return out.join('\n');
+}
+
 return view.extend({
 	steps: {
 		init:                    [  0, _('Received build request')],
@@ -778,8 +957,12 @@ return view.extend({
 		]);
 
 		// Call the CGI script to get the list of available firmware releases
-		fetch('/cgi-bin/github_check')
-			.then(response => response.json())
+		fetch('/cgi-bin/github_check', { cache: 'no-store' })
+			.then(response => {
+				if (!response.ok)
+					throw new Error(`HTTP ${response.status}`);
+				return response.json();
+			})
 			.then(data => {
 				if (data.error) {
 					ui.showModal(_('Error'), [
@@ -809,22 +992,35 @@ return view.extend({
 
 				// Populate the dropdown with available releases
 				releases.forEach((release, index) => {
-					let optionText = release.tag ? `${release.tag} (${release.version})` : release.version;
+					let optionText = release.tag || release.version || '';
+					if (release.tag && release.version)
+						optionText = `${release.tag} (${release.version})`;
 					releaseSelect.appendChild(E('option', { 'value': index }, optionText));
 				});
 
 				let keep = E('input', { type: 'checkbox' });
 				keep.checked = true;
 
+				// The notes are rendered as HTML and grow with their content,
+				// so the dialog height follows the selected release.
+				const notesElement = E('div', {
+					style: 'padding: .5em .75em; border: 1px solid rgba(128,128,128,.4); border-radius: 3px; line-height: 1.45; overflow-wrap: anywhere;'
+				});
+
 				// Create element for the URL
 				const urlElement = E('td', { class: 'td left' });
 
-				// Function to update the URL based on selected release
+				// Function to update the details based on selected release
 				const updateDetails = function() {
 					const selectedIndex = releaseSelect.value;
 					const selectedRelease = releases[selectedIndex];
 
 					if (selectedRelease) {
+						if (selectedRelease.notes)
+							notesElement.innerHTML = renderGithubMarkdown(selectedRelease.notes);
+						else
+							notesElement.textContent = _('No release notes available');
+
 						// Clear previous link and create a new one
 						urlElement.innerHTML = '';
 						urlElement.appendChild(E('a', { href: 'https://github.com/w1700k/builds/releases/tag/' + selectedRelease.tag, target: '_blank' }, _('View on GitHub')));
@@ -838,13 +1034,19 @@ return view.extend({
 					E('p', _('Select a firmware release to install:')),
 					E('div', { class: 'table' }, [
 						E('tr', { class: 'tr' }, [
-							E('td', { class: 'td left', width: '33%' }, _('Release')),
+							E('td', { class: 'td left', style: 'width: 9em' }, _('Release')),
 							E('td', { class: 'td left' }, [releaseSelect])
 						])
 					]),
 					E('div', { class: 'table mt-2' }, [
 						E('tr', { class: 'tr' }, [
-							E('td', { class: 'td left', width: '33%' }, _('URL')),
+							E('td', { class: 'td left', style: 'width: 9em; vertical-align: top' }, _('Notes')),
+							E('td', { class: 'td left' }, [notesElement])
+						])
+					]),
+					E('div', { class: 'table mt-2' }, [
+						E('tr', { class: 'tr' }, [
+							E('td', { class: 'td left', style: 'width: 9em' }, _('URL')),
 							urlElement
 						])
 					]),
@@ -869,7 +1071,7 @@ return view.extend({
 									const selectedRelease = releases[selectedIndex];
 
 									if (selectedRelease && selectedRelease.tag) {
-										this.handleGithubInstall(selectedRelease.tag, keep.checked);
+										this.handleGithubInstall(selectedRelease.tag, selectedRelease.name, keep.checked);
 									} else {
 										ui.showModal(_('Error'), [
 											E('p', _('Invalid release selected')),
@@ -888,7 +1090,15 @@ return view.extend({
 				// Initialize details for the initially selected release (first option)
 				updateDetails();
 
-				ui.showModal(_('Available GitHub Releases'), modal_body);
+				// The class is reset by the next showModal() call, so the
+				// wider width only applies to this dialog.
+				const styleId = 'github-releases-modal-style';
+				if (!document.getElementById(styleId)) {
+					document.head.appendChild(E('style', { id: styleId },
+						'#modal_overlay > .modal.github-releases { max-width: 860px; max-width: min(860px, 94vw); }'));
+				}
+
+				ui.showModal(_('Available GitHub Releases'), modal_body, 'github-releases');
 			})
 			.catch(error => {
 				ui.showModal(_('Error'), [
@@ -900,67 +1110,107 @@ return view.extend({
 			});
 	},
 
-	handleGithubInstall: function(tag, keep) {
-		ui.showModal(_('Downloading from GitHub...'), [
-			E(
-				'p',
-				{ class: 'spinning' },
-				_('Downloading firmware from GitHub to device')
-			),
-		]);
+	handleGithubInstall: function(tag, asset, keep) {
+		let status = E('p', _('Downloading firmware from GitHub to device'));
+		let progress = E('progress', { value: 0, max: 100 });
+		progress.style.width = '100%';
+		progress.style.display = 'block';
+		ui.showModal(_('Downloading from GitHub...'), [status, progress]);
 
-		// Call the CGI script to download the firmware to /tmp/firmware.bin
-		// Pass the selected tag as a parameter to the github_fetch script
-		fetch(`/cgi-bin/github_fetch?tag=${encodeURIComponent(tag)}`)
-			.then(response => response.json())
-			.then(data => {
-				if (data.error) {
-					ui.showModal(_('Error'), [
-						E('p', _('Error downloading firmware: %s').format(data.error)),
-						E('div', { class: 'right' }, [
-							E('div', { class: 'btn', click: ui.hideModal }, _('Close')),
-						]),
-					]);
-					return;
-				}
+		const fmt = (bytes) => (bytes / 1048576).toFixed(1) + ' MiB';
+		const fail = (message) => {
+			ui.showModal(_('Download Error'), [
+				E('p', _('Error downloading firmware from GitHub: %s').format(message)),
+				E('div', { class: 'right' }, [
+					E('div', { class: 'btn', click: ui.hideModal }, _('Close')),
+				]),
+			]);
+		};
+		const install = () => {
+			ui.showModal(_('Installing...'), [
+				E('div', { class: 'spinning' }, [
+					E('p', _('Installing the sysupgrade image...')),
+					E('p',
+					_('Once the image is written, the system will reboot.')
+					+ ' ' +
+					_('This should take at least a minute, so please wait for the login screen.')
+					),
+					E('b', _('While you are waiting, do not unpower device!')),
+				]),
+			]);
 
-				if (data.success) {
-					// Firmware is already downloaded to the device and SHA256 verified by the CGI script
-					// Path returned by the CGI script: ${data.path || '/tmp/firmware.bin'}
-					ui.showModal(_('Installing...'), [
-						E('div', { class: 'spinning' }, [
-							E('p', _('Installing the sysupgrade image...')),
-							E('p',
-							_('Once the image is written, the system will reboot.')
-							+ ' ' +
-							_('This should take at least a minute, so please wait for the login screen.')
-							),
-							E('b', _('While you are waiting, do not unpower device!')),
-						]),
-					]);
-
-					L.resolveDefault(callUpgradeStart(keep), {}).then((response) => {
-						// Wait 10 seconds before we try to reconnect...
-						let hosts = keep ? [] : ['192.168.1.1', 'openwrt.lan'];
-						setTimeout(() => { ui.awaitReconnect(...hosts); }, 10000);
-					});
-				} else {
-					ui.showModal(_('Error'), [
-						E('p', _('Unexpected response from firmware download script')),
-						E('div', { class: 'right' }, [
-							E('div', { class: 'btn', click: ui.hideModal }, _('Close')),
-						]),
-					]);
-				}
-			})
-			.catch(error => {
-				ui.showModal(_('Download Error'), [
-					E('p', _('Error downloading firmware from GitHub: %s').format(error.message)),
-					E('div', { class: 'right' }, [
-						E('div', { class: 'btn', click: ui.hideModal }, _('Close')),
-					]),
-				]);
+			L.resolveDefault(callUpgradeStart(keep), {}).then((response) => {
+				// Wait 10 seconds before we try to reconnect...
+				let hosts = keep ? [] : ['192.168.1.1', 'openwrt.lan'];
+				setTimeout(() => { ui.awaitReconnect(...hosts); }, 10000);
 			});
+		};
+
+		// The CGI stores /tmp/firmware.bin in resumable chunks so that each
+		// request stays below uhttpd's CGI timeout.
+		const url = `/cgi-bin/github_fetch?tag=${encodeURIComponent(tag)}`
+			+ (asset ? `&asset=${encodeURIComponent(asset)}` : '');
+		let lastReceived = 0;
+		let stalled = 0;
+
+		const step = () => {
+			fetch(url, { cache: 'no-store' })
+				.then(response => {
+					if (!response.ok)
+						throw new Error(`HTTP ${response.status}`);
+					return response.json();
+				})
+				.then(data => {
+					if (data.error) {
+						fail(data.error);
+						return;
+					}
+
+					if (data.success) {
+						// Firmware is downloaded to /tmp/firmware.bin and its
+						// SHA256 has been verified by the CGI script.
+						install();
+						return;
+					}
+
+					if (!data.pending) {
+						fail(_('Unexpected response from firmware download script'));
+						return;
+					}
+
+					const received = data.received || 0;
+					const total = data.total || 0;
+
+					if (total > 0) {
+						progress.max = total;
+						progress.value = received;
+						status.textContent = '%s / %s (%d%%)'.format(
+							fmt(received), fmt(total),
+							Math.floor(received * 100 / total));
+					}
+					else {
+						status.textContent = fmt(received);
+					}
+
+					if (received > lastReceived) {
+						lastReceived = received;
+						stalled = 0;
+					}
+					else {
+						stalled++;
+					}
+
+					if (stalled >= 3) {
+						fail(data.message || _('Download stalled'));
+						return;
+					}
+
+					setTimeout(step, 200);
+				})
+				.catch(error => fail(error.message));
+		};
+
+		step();
 	},
 
 	handleSaveApply: null,

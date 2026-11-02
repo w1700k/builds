@@ -1,32 +1,108 @@
 #!/bin/sh
+#
+# List sysupgrade images published in the w1700k/builds GitHub releases.
+# The JSON array is consumed by luci-app-attendedsysupgrade.  The raw API
+# response is cached for github_fetch, so installing a listed release does
+# not need another API request.
 
-# CGI header
-echo "Content-Type: application/json"
-echo ""
+printf 'Content-Type: application/json\n'
+printf 'Cache-Control: no-store\n'
+printf '\n'
 
-# Create a temporary file for the final JSON objects
-temp_json="/tmp/github_versions_$$.tmp"
-> "$temp_json"  # Clear the file
+API_URL='https://api.github.com/repos/w1700k/builds/releases?per_page=100'
+CACHE_FILE='/tmp/github-releases.json'
 
-curl -sS https://api.github.com/repos/w1700k/builds/releases | \
-jq -r '.[] | "\(.tag_name) \(.assets[] | select(.browser_download_url | contains("sysupgrade")) | .browser_download_url)"' | \
-while read -r tag url; do
-    if [ -z "$url" ] || [ -z "$tag" ]; then
-        continue
-    fi
-    version=$(echo "$url" | sed -n 's/.*openwrt-airoha-an7581-\([^/]*\)-squashfs-sysupgrade.*/\1/p')
-    if [ -n "$version" ]; then
-        [ -s "$temp_json" ] && printf ','
-        printf "{\"tag\": \"%s\", \"url\": \"%s\", \"version\": \"%s\"}" "$tag" "$url" "$version"
-    fi
-done >> "$temp_json"
+json_error() {
+    jq -n --arg error "$1" '{error: $error}'
+}
 
-# Now format the results as a JSON array
-if [ -s "$temp_json" ]; then
-    echo "[$(cat "$temp_json")]"
-else
-    echo "[]"
+if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    printf '{"error":"curl and jq are required"}\n'
+    exit 0
 fi
 
-# Clean up
-rm -f "$temp_json" 2>/dev/null || true
+tmpdir=$(mktemp -d /tmp/github-check.XXXXXX) || {
+    json_error 'Cannot create temporary directory'
+    exit 0
+}
+trap 'rm -rf "$tmpdir"' 0
+exec 2>"$tmpdir/stderr"
+
+# curl --max-time is applied per attempt, so three attempts plus the delays
+# stay well below uhttpd's 60 s CGI timeout.
+http_code=$(curl -sS --location \
+    --proto '=https' --proto-redir '=https' \
+    --connect-timeout 8 --max-time 10 \
+    --retry 2 --retry-delay 1 --retry-connrefused \
+    --user-agent 'luci-app-attendedsysupgrade' \
+    --header 'Accept: application/vnd.github+json' \
+    --header 'X-GitHub-Api-Version: 2022-11-28' \
+    --dump-header "$tmpdir/headers" \
+    --output "$tmpdir/body" \
+    --write-out '%{http_code}' \
+    "$API_URL" 2>"$tmpdir/curl.err")
+curl_rc=$?
+
+if [ "$curl_rc" -ne 0 ]; then
+    message=$(sed -n '$p' "$tmpdir/curl.err")
+    json_error "Could not reach GitHub: ${message:-network error}"
+    exit 0
+fi
+
+if [ "$http_code" != '200' ]; then
+    message=$(jq -r '.message // empty' "$tmpdir/body" 2>/dev/null)
+    remaining=$(awk 'tolower($1) == "x-ratelimit-remaining:" { print $2 }' "$tmpdir/headers" | tr -d '\r' | tail -n 1)
+    if [ "$http_code" = '429' ] || [ "$remaining" = '0' ]; then
+        reset=$(awk 'tolower($1) == "x-ratelimit-reset:" { print $2 }' "$tmpdir/headers" | tr -d '\r' | tail -n 1)
+        if [ -n "$reset" ] && [ "$reset" -gt 0 ] 2>/dev/null; then
+            wait=$((reset - $(date +%s)))
+            [ "$wait" -lt 0 ] && wait=0
+            json_error "GitHub API rate limit exceeded, try again in $(( (wait + 59) / 60 )) minute(s)"
+        else
+            json_error "${message:-GitHub API rate limit exceeded}"
+        fi
+    else
+        json_error "${message:-GitHub API returned HTTP $http_code}"
+    fi
+    exit 0
+fi
+
+if ! jq -e 'type == "array"' "$tmpdir/body" >/dev/null 2>&1; then
+    json_error 'GitHub returned an unexpected response'
+    exit 0
+fi
+
+cp "$tmpdir/body" "$CACHE_FILE.$$" &&
+    chmod 600 "$CACHE_FILE.$$" &&
+    mv "$CACHE_FILE.$$" "$CACHE_FILE"
+
+if ! jq -c '
+    [ .[]
+      | select(type == "object")
+      | .tag_name as $tag
+      | (.body // "") as $notes
+      | select($tag | type == "string")
+      | .assets[]?
+      | select(type == "object")
+      | select(.name | type == "string")
+      | select(.name | ascii_downcase | contains("sysupgrade"))
+      | select(.browser_download_url | type == "string")
+      | {
+          tag: $tag,
+          url: .browser_download_url,
+          name: .name,
+          notes: $notes,
+          size: (.size // 0),
+          sha256: ((.digest // "") | split("sha256:") | .[1] // ""),
+          version: (.name | split("-squashfs-sysupgrade")[0]
+                    | split("-") | .[3:] | join("-"))
+        }
+    ]
+    | reduce .[] as $item ([]; if any(.[]; .url == $item.url) then . else . + [$item] end)
+' "$tmpdir/body" > "$tmpdir/result"
+then
+    json_error 'Could not parse the GitHub response'
+    exit 0
+fi
+
+cat "$tmpdir/result"
