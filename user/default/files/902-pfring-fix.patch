@@ -1,0 +1,51 @@
+Subject: [PATCH] pf_ring: fix bind() signature on kernels with sockaddr_unsized
+
+Linux 6.18.60 introduced struct sockaddr_unsized for the proto_ops.bind()
+callback. Detect the type from the kernel headers and use it for
+ring_bind() when available, so PF_RING builds with both the old and new
+signature.
+
+A version check cannot distinguish 6.18.55 from 6.18.60: the type is
+present in the latter only, and a >= 6.18.0 guard would break the older
+tree. The header check also covers future changes.
+
+---
+ kernel/Makefile  | 5 +++++
+ kernel/pf_ring.c | 4 ++++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/kernel/Makefile b/kernel/Makefile
+index f48d91e..1d3f4f7 100644
+--- a/kernel/Makefile
++++ b/kernel/Makefile
+@@ -55,6 +55,11 @@ INSTDIR := $(DESTDIR)/lib/modules/$(BUILD_KERNEL)/kernel/net/pf_ring
+ TARGETDIR := $(DESTDIR)/usr/src/$(BUILD_KERNEL)/include/linux/
+ KERNEL_SRC := /lib/modules/$(BUILD_KERNEL)/build
+ 
++PF_RING_KERNEL_INCLUDE := $(if $(KERNEL_DIR),$(KERNEL_DIR),$(KERNEL_SRC))
++ifneq (,$(shell grep -l "sockaddr_unsized" $(PF_RING_KERNEL_INCLUDE)/include/linux/net.h 2>/dev/null))
++  ccflags-y += -DHAVE_SOCKADDR_UNSIZED
++endif
++
+ all: Makefile pf_ring.c linux/pf_ring.h
+ #	@if test "$(USER)" = "root"; then \
+ #		echo "********** WARNING WARNING WARNING **********"; \
+diff --git a/kernel/pf_ring.c b/kernel/pf_ring.c
+index 374a5c0..4434a2e 100644
+--- a/kernel/pf_ring.c
++++ b/kernel/pf_ring.c
+@@ -5861,7 +5861,11 @@ static int packet_ring_bind(struct sock *sk, pf_ring_device *dev)
+ /* ************************************* */
+ 
+ /* Bind to a device */
++#ifdef HAVE_SOCKADDR_UNSIZED
++static int ring_bind(struct socket *sock, struct sockaddr_unsized *sa, int addr_len)
++#else
+ static int ring_bind(struct socket *sock, struct sockaddr *sa, int addr_len)
++#endif
+ {
+   struct sock *sk = sock->sk;
+   struct net *net = sock_net(sk);
+-- 
+2.47.3
+
