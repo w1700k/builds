@@ -5,7 +5,7 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: self-hosted
-    strategy: {fail-fast: false, matrix: {target: [ubi2-oc]}}
+    strategy: {fail-fast: false, matrix: {target: [ubi2]}}
     env:
       DK_OPENWRT: /bld/openwrt
       DK_BIN: /bld/openwrt_bin
