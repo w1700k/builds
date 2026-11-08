@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        environment: [main, snapshot, ubi2-oc, kernel73-oc]
+        environment: [main, snapshot, ubi2-oc, kernel74-oc]
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout remote repository
