@@ -1,4 +1,4 @@
-name: zbackup ubi2-oc and kernel74-oc
+name: zbackup ubi2-oc and kernel73-oc
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-slim
     strategy:
       matrix:
-        environment: [ubi2-oc, kernel74-oc]
+        environment: [ubi2-oc, kernel73-oc]
     permissions:
       contents: write
     environment: ${{ matrix.environment }}
