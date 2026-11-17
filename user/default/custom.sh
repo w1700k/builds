@@ -4,4 +4,5 @@ echo "Running custom commands"
 mv files/overview.js feeds/luci/applications/luci-app-attendedsysupgrade/htdocs/luci-static/resources/view/attendedsysupgrade/overview.js
 mkdir -p feeds/luci/modules/luci-mod-status/patches
 mv files/998-single-wiphy.patch feeds/luci/modules/luci-mod-status/patches/998-single-wiphy.patch
+find feeds/luci/modules/luci-mod-dashboard -name 10_router.js -exec sed -i 's/router\.model\.value/router.release.value/' {} +
 echo "=============================================="
